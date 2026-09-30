@@ -1,6 +1,5 @@
 Flask
-pandas
 SQLAlchemy
+pandas
 PyMySQL
-cryptography
 gunicorn
