@@ -39,14 +39,27 @@ with engine.begin() as conn:
         specs TEXT, 
         block_number VARCHAR(100), 
         eviction_penalty VARCHAR(255), 
-        status VARCHAR(50) DEFAULT 'بەردەستە',
-        owner_name VARCHAR(100),
-        owner_phone VARCHAR(50)
+        status VARCHAR(50) DEFAULT 'بەردەستە'
     )"""))
     
     conn.execute(text("CREATE TABLE IF NOT EXISTS transactions (id INT AUTO_INCREMENT PRIMARY KEY, transaction_type VARCHAR(50), amount DECIMAL(15,2), description TEXT, transaction_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"))
     conn.execute(text("CREATE TABLE IF NOT EXISTS contracts (id INT PRIMARY KEY, property_id INT, seller_id INT, buyer_id INT, contract_date DATE, total_price DECIMAL(15,2), advance_payment DECIMAL(15,2) DEFAULT 0, currency VARCHAR(20) DEFAULT 'دۆلار', office_commission DECIMAL(15,2), witness1 VARCHAR(100), witness2 VARCHAR(100), contract_details TEXT)"))
     conn.execute(text("CREATE TABLE IF NOT EXISTS safe_box (id INT AUTO_INCREMENT PRIMARY KEY, trans_date DATE, person_name VARCHAR(255), amount DECIMAL(15,2), currency VARCHAR(50), trans_type VARCHAR(50), note TEXT)"))
+
+# چارەسەری ئیرۆرەکەی کاتی کردنەوەی موڵکی بەردەست بە شێوەیەکی پارێزراو
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE properties ADD COLUMN owner_name VARCHAR(100)"))
+        conn.commit()
+except Exception:
+    pass
+
+try:
+    with engine.connect() as conn:
+        conn.execute(text("ALTER TABLE properties ADD COLUMN owner_phone VARCHAR(50)"))
+        conn.commit()
+except Exception:
+    pass
 
 # قاڵبی بنەڕەتی HTML
 BASE_TEMPLATE = """
@@ -87,7 +100,8 @@ BASE_TEMPLATE = """
         .main-menu a:hover { background-color: var(--main-color); color: var(--bg-dark); transform: translateY(-3px); box-shadow: 0 5px 15px rgba(0,0,0,0.4); border-color: var(--main-color); }
         .main-menu a.danger-menu { background-color: #450a0a; color: #fca5a5; border-color: #7f1d1d; }
         .main-menu a.danger-menu:hover { background-color: #dc2626; color: white; border-color: #ef4444; }
-        .menu-title { width: 100%; text-align: center; color: var(--main-color); font-size: 24px; font-weight: 900; margin-bottom: 15px; text-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 1; }
+        .menu-title { width: 100%; text-align: center; color: var(--main-color); font-size: 24px; font-weight: 900; margin-bottom: 15px; text-shadow: 0 2px 4px rgba(0,0,0,0.3); z-index: 1; display: flex; align-items: center; justify-content: center; gap: 15px; }
+        .menu-logo { height: 45px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.3)); }
 
         .card { background-color: var(--bg-card); padding: 25px; border-radius: 12px; border: 1px solid var(--border-color); box-shadow: 0 10px 15px rgba(0,0,0,0.3); margin-bottom: 20px; border-top: 4px solid var(--main-color); transition: 0.3s; width: 100%; box-sizing: border-box; }
         
@@ -116,9 +130,6 @@ BASE_TEMPLATE = """
         th { background-color: var(--bg-dark); color: var(--main-color); font-weight: 900; white-space: nowrap; }
         tr:hover { background-color: var(--border-color); }
         .section-title { color: var(--main-color); font-size: 18px; font-weight: 900; margin-top: 20px; margin-bottom: 15px; border-bottom: 2px solid var(--border-color); padding-bottom: 5px; }
-        
-        .stat-box { background: var(--bg-card); padding: 30px; border-radius: 16px; text-align: center; border-bottom: 5px solid var(--main-color); transition: 0.3s; box-shadow: 0 8px 15px rgba(0,0,0,0.2); }
-        .stat-box:hover { transform: translateY(-5px); box-shadow: 0 15px 25px rgba(0,0,0,0.4); }
 
         @media (max-width: 768px) {
             .grid-2, .grid-3, .grid-4, .grid-30-70, .grid-35-65 { grid-template-columns: 1fr; gap: 10px; }
@@ -126,7 +137,7 @@ BASE_TEMPLATE = """
             .card { padding: 15px; }
             .main-menu a { min-width: 45%; font-size: 13px; padding: 10px; }
             .menu-title { font-size: 20px; }
-            .stat-box h2 { font-size: 28px !important; }
+            .menu-logo { height: 35px; }
             input, select { padding: 10px; font-size: 13px; }
         }
     </style>
@@ -134,7 +145,10 @@ BASE_TEMPLATE = """
 <body>
     <div class="container">
         <div class="main-menu">
-            <div class="menu-title">🏢 نوسینگەی شەعبان</div>
+            <div class="menu-title">
+                <img src="/static/logo.png" onerror="this.style.display='none'" class="menu-logo" alt="لۆگۆ">
+                نوسینگەی شەعبان
+            </div>
             <a href="/dashboard"><span>🏠</span> داشبۆرد</a>
             <a href="/properties_available"><span>🏢</span> موڵکی بەردەست</a>
             <a href="/contract"><span>📝</span> گرێبەست</a>
@@ -259,53 +273,128 @@ def dashboard():
         total_income = conn.execute(text("SELECT SUM(amount) FROM transactions WHERE transaction_type='داهات'")).scalar() or 0
 
     content = """
-    <div style="background: linear-gradient(135deg, var(--bg-card), var(--bg-dark)); padding: 30px; border-radius: 16px; text-align: center; margin-bottom: 25px; box-shadow: 0 10px 25px rgba(0,0,0,0.3); border: 1px solid var(--main-color); position: relative; overflow: hidden;">
-        <h1 style="color: var(--main-color); margin: 0; font-size: 28px; text-shadow: 0 2px 4px rgba(0,0,0,0.5);">سیستەمی بەڕێوەبردنی نوسینگەی شەعبان</h1>
-        <p style="color: #cbd5e1; margin-top: 10px; font-size: 15px;">بەخێربێیت، کۆنترۆڵی سەرجەم گرێبەست و حیساباتەکان بکە بە ئاسانی</p>
+    <style>
+        /* دیزاینی نوێ و مۆدێرنی داشبۆرد */
+        .welcome-banner { background: linear-gradient(135deg, rgba(245,158,11,0.1) 0%, rgba(245,158,11,0.02) 100%); border-right: 4px solid var(--main-color); padding: 40px 30px; border-radius: 16px; display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); position: relative; overflow: hidden; border: 1px solid rgba(255,255,255,0.05); }
+        .welcome-banner::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(255,255,255,0.03) 0%, transparent 60%); pointer-events: none; }
+        .welcome-text h1 { color: var(--main-color); margin: 0 0 10px 0; font-size: 32px; font-weight: 900; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
+        .welcome-text p { color: #cbd5e1; margin: 0; font-size: 16px; line-height: 1.6; max-width: 600px; }
+        .welcome-logo { max-width: 150px; opacity: 0.9; filter: drop-shadow(0 10px 15px rgba(0,0,0,0.4)); z-index: 1; transition: 0.3s; }
+        .welcome-logo:hover { transform: scale(1.05); }
+        
+        .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card-new { background: var(--bg-card); padding: 25px; border-radius: 16px; display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--border-color); box-shadow: 0 8px 15px rgba(0,0,0,0.2); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; overflow: hidden; cursor: default; }
+        .stat-card-new:hover { transform: translateY(-5px); box-shadow: 0 15px 30px rgba(0,0,0,0.4); border-color: var(--main-color); }
+        .stat-card-new::after { content: ''; position: absolute; top: 0; left: 0; width: 4px; height: 100%; }
+        .stat-card-new.c1::after { background: #f59e0b; }
+        .stat-card-new.c2::after { background: #3b82f6; }
+        .stat-card-new.c3::after { background: #a855f7; }
+        .stat-card-new.c4::after { background: #10b981; }
+        
+        .stat-info { z-index: 1; }
+        .stat-title { color: #94a3b8; font-size: 14px; font-weight: bold; margin-bottom: 8px; }
+        .stat-value { color: var(--main-color); font-size: 34px; font-weight: 900; margin: 0; line-height: 1; }
+        .stat-icon { font-size: 50px; opacity: 0.15; position: absolute; left: -5px; bottom: -10px; transform: rotate(-15deg); transition: 0.4s; }
+        .stat-card-new:hover .stat-icon { transform: rotate(0deg) scale(1.1); opacity: 0.3; }
+
+        .dashboard-sections { display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; }
+        .action-panel { background: var(--bg-card); border-radius: 16px; padding: 30px; border: 1px solid var(--border-color); box-shadow: 0 10px 20px rgba(0,0,0,0.2); }
+        .action-header { display: flex; align-items: center; gap: 15px; border-bottom: 2px solid rgba(255,255,255,0.05); padding-bottom: 15px; margin-bottom: 25px; }
+        .action-header h3 { margin: 0; color: #fff; font-size: 20px; font-weight: 900; }
+        .action-icon { background: rgba(245,158,11,0.1); color: var(--main-color); width: 45px; height: 45px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+        
+        .btn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+        .btn-dash { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; padding: 20px; color: #e2e8f0; text-decoration: none; font-weight: bold; transition: 0.3s; text-align: center; }
+        .btn-dash i { font-size: 32px; margin-bottom: 5px; transition: 0.3s; }
+        .btn-dash:hover { background: var(--main-color); color: var(--bg-dark); transform: translateY(-4px); box-shadow: 0 10px 20px rgba(245,158,11,0.3); }
+        .btn-dash:hover i { transform: scale(1.2); }
+        
+        .btn-dash-row { display: flex; flex-direction: row; align-items: center; justify-content: flex-start; gap: 20px; padding: 20px 25px; font-size: 16px; }
+        .btn-dash-row i { margin-bottom: 0; font-size: 28px; }
+
+        @media (max-width: 768px) {
+            .dashboard-sections { grid-template-columns: 1fr; }
+            .welcome-banner { flex-direction: column; text-align: center; border-right: none; border-top: 4px solid var(--main-color); gap: 20px; }
+            .welcome-logo { max-width: 120px; }
+            .stat-grid { grid-template-columns: 1fr 1fr; }
+            .stat-value { font-size: 26px; }
+        }
+    </style>
+
+    <!-- بانەری سەرەکی -->
+    <div class="welcome-banner">
+        <div class="welcome-text">
+            <h1>داشبۆردی بەڕێوەبردن</h1>
+            <p>بەخێربێیت بۆ نوسینگەی شەعبان، لێرەوە دەتوانیت بە خێرایی و ئاسانی کۆنترۆڵی سەرجەم گرێبەست، حیسابات و موڵکەکان بکەیت.</p>
+        </div>
+        <img src="/static/logo.png" onerror="this.style.display='none'" alt="لۆگۆ" class="welcome-logo">
     </div>
     
-    <div class="grid-4">
-        <div class="card stat-box" style="border-bottom-color: #f59e0b; padding:20px;">
-            <div style="color:#94a3b8; font-size:14px; font-weight:bold;">کۆی کڕیارەکان 👥</div>
-            <h2 style="color:var(--main-color); font-size:32px; font-weight:900; margin:10px 0 0 0;">{{ clients_count }}</h2>
+    <!-- کارتەکانی ئامار -->
+    <div class="stat-grid">
+        <div class="stat-card-new c1">
+            <div class="stat-info">
+                <div class="stat-title">کۆی کڕیارەکان</div>
+                <div class="stat-value">{{ clients_count }}</div>
+            </div>
+            <div class="stat-icon">👥</div>
         </div>
-        <div class="card stat-box" style="border-bottom-color: #3b82f6; padding:20px;">
-            <div style="color:#94a3b8; font-size:14px; font-weight:bold;">موڵکی بەردەست 🏢</div>
-            <h2 style="color:var(--main-color); font-size:32px; font-weight:900; margin:10px 0 0 0;">{{ avail_props }}</h2>
+        <div class="stat-card-new c2">
+            <div class="stat-info">
+                <div class="stat-title">موڵکی بەردەست</div>
+                <div class="stat-value">{{ avail_props }}</div>
+            </div>
+            <div class="stat-icon">🏢</div>
         </div>
-        <div class="card stat-box" style="border-bottom-color: #a855f7; padding:20px;">
-            <div style="color:#94a3b8; font-size:14px; font-weight:bold;">گرێبەستەکان 📝</div>
-            <h2 style="color:var(--main-color); font-size:32px; font-weight:900; margin:10px 0 0 0;">{{ contracts_count }}</h2>
+        <div class="stat-card-new c3">
+            <div class="stat-info">
+                <div class="stat-title">گرێبەستەکان</div>
+                <div class="stat-value">{{ contracts_count }}</div>
+            </div>
+            <div class="stat-icon">📝</div>
         </div>
-        <div class="card stat-box" style="border-bottom-color: #10b981; padding:20px;">
-            <div style="color:#94a3b8; font-size:14px; font-weight:bold;">داهاتی قاسە 💰</div>
-            <h2 style="color:var(--main-color); font-size:28px; font-weight:900; margin:10px 0 0 0;" dir="ltr">{{ "{:,.0f}".format(total_income) }} $</h2>
+        <div class="stat-card-new c4">
+            <div class="stat-info">
+                <div class="stat-title">داهاتی قاسە</div>
+                <div class="stat-value" dir="ltr">{{ "{:,.0f}".format(total_income) }} $</div>
+            </div>
+            <div class="stat-icon">💰</div>
         </div>
     </div>
     
-    <div class="grid-2" style="margin-top: 10px;">
-        <div class="card" style="text-align:center; padding:30px;">
-            <h3 style="color:var(--main-color); margin-top:0;">گەیشتنی خێرا ⚡</h3>
-            <div style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:20px;">
-                <a href="/contract" class="btn-primary" style="margin:0; width:auto; padding:10px 25px;">گرێبەستی نوێ 📝</a>
-                <a href="/properties_available" class="btn-primary" style="margin:0; width:auto; padding:10px 25px; background-color:#3b82f6; color:white;">تۆماری موڵک 🏢</a>
-                <a href="/safe" class="btn-primary" style="margin:0; width:auto; padding:10px 25px; background-color:#10b981; color:white;">پارە وەرگرتن 📥</a>
+    <!-- بەشەکانی گەیشتنی خێرا -->
+    <div class="dashboard-sections">
+        <div class="action-panel">
+            <div class="action-header">
+                <div class="action-icon">⚡</div>
+                <h3>گەیشتنی خێرا</h3>
+            </div>
+            <div class="btn-grid">
+                <a href="/contract" class="btn-dash"><i>📝</i> <span>گرێبەستی نوێ</span></a>
+                <a href="/properties_available" class="btn-dash"><i>🏢</i> <span>تۆماری موڵک</span></a>
+                <a href="/safe" class="btn-dash"><i>📥</i> <span>پارە وەرگرتن</span></a>
+                <a href="/expenses" class="btn-dash"><i>💸</i> <span>تۆماری خەرجی</span></a>
             </div>
         </div>
-        <div class="card" style="text-align:center; padding:30px;">
-            <h3 style="color:#ef4444; margin-top:0;">ڕاپۆرتەکان 📊</h3>
-            <div style="display:flex; gap:15px; justify-content:center; flex-wrap:wrap; margin-top:20px;">
-                <a href="/archive" class="btn-primary" style="margin:0; width:auto; padding:10px 25px; background-color:#3b82f6; color:white;">بینینی ئەرشیف 🗂️</a>
-                <a href="/expenses" class="btn-primary" style="margin:0; width:auto; padding:10px 25px; background-color:#ef4444; color:white;">تۆماری خەرجی 💸</a>
+        
+        <div class="action-panel">
+            <div class="action-header">
+                <div class="action-icon" style="color: #ef4444; background: rgba(239,68,68,0.1);">📊</div>
+                <h3 style="color: #fca5a5;">ڕاپۆرت و داتا</h3>
+            </div>
+            <div class="btn-grid" style="grid-template-columns: 1fr;">
+                <a href="/archive" class="btn-dash btn-dash-row" style="border-left: 3px solid #3b82f6;">
+                    <i>🗂️</i> <span>بینینی ئەرشیفی گرێبەستەکان</span>
+                </a>
+                <a href="/users" class="btn-dash btn-dash-row" style="border-left: 3px solid #10b981;">
+                    <i>👥</i> <span>بەڕێوەبردنی بەکارهێنەران</span>
+                </a>
             </div>
         </div>
     </div>
     """
     return render_template_string(BASE_TEMPLATE.replace('<!--CONTENT_PLACEHOLDER-->', content), clients_count=clients_count, avail_props=avail_props, contracts_count=contracts_count, total_income=total_income)
 
-# ==========================================
-# بەشی نوێ: موڵکی بەردەست (تۆمارکردن، فلتەر، دەستکاری)
-# ==========================================
 @app.route("/properties_available", methods=["GET", "POST"])
 def properties_available():
     if not session.get('logged_in'): return redirect(url_for('login'))
@@ -330,7 +419,7 @@ def properties_available():
     query += " ORDER BY id DESC"
     
     with engine.connect() as conn:
-        props = conn.execute(text(query), params).fetchall()
+        props = conn.execute(text(query), params).mappings().fetchall()
         types_res = conn.execute(text("SELECT DISTINCT property_type FROM properties")).fetchall()
         locs_res = conn.execute(text("SELECT DISTINCT location FROM properties WHERE location != ''")).fetchall()
         neighs_res = conn.execute(text("SELECT DISTINCT neighborhood FROM properties WHERE neighborhood != ''")).fetchall()
@@ -340,117 +429,166 @@ def properties_available():
     p_neighs = list(set([r[0] for r in neighs_res if r[0]] + ['ئازادی١', 'سەرا', 'نەورۆز', 'شارەوانی', 'داستان']))
 
     content = """
-    <div class="grid-30-70">
-        <!-- بەشی تۆمارکردن (٣٠٪) -->
-        <div class="card">
-            <h3 style="color:var(--main-color); text-align:center; margin-top:0;">➕ تۆمارکردنی موڵکی بەردەست</h3>
+    <style>
+        /* دیزاینی تایبەتی ئەم پەڕەیە */
+        .modern-layout { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+        .form-section { flex: 1; min-width: 320px; background: linear-gradient(145deg, var(--bg-card), var(--bg-dark)); padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .list-section { flex: 2.5; min-width: 300px; }
+        
+        .form-section input, .form-section select { background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 10px; color: #fff; padding: 14px 15px; font-weight: normal; font-size: 14px; transition: all 0.3s; margin-bottom: 18px; width: 100%; box-sizing: border-box; }
+        .form-section input::placeholder { color: #94a3b8; }
+        .form-section input:focus, .form-section select:focus { border-color: var(--main-color); background: rgba(0,0,0,0.4); box-shadow: 0 0 12px rgba(245, 158, 11, 0.2); }
+        .btn-modern { background: linear-gradient(45deg, var(--main-color), #d97706); border: none; color: #fff; font-weight: bold; font-family: 'Noto Kufi Arabic'; padding: 14px; border-radius: 10px; width: 100%; margin-top: 10px; cursor: pointer; transition: transform 0.2s, box-shadow 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .btn-modern:hover { transform: translateY(-3px); box-shadow: 0 8px 15px rgba(245, 158, 11, 0.4); }
+
+        .filter-card { background: var(--bg-card); padding: 15px 20px; border-radius: 16px; margin-bottom: 20px; border: 1px solid var(--border-color); box-shadow: 0 5px 15px rgba(0,0,0,0.2); display: flex; flex-wrap: wrap; gap: 15px; align-items: flex-end; }
+        .filter-card select, .filter-card input { background: var(--bg-dark); border-radius: 8px; border: 1px solid var(--border-color); padding: 10px; color: white; min-width: 150px; }
+        
+        /* Grid-ی کارتەکانی موڵک */
+        .properties-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
+        .prop-card { background: var(--bg-card); border-radius: 16px; overflow: hidden; border: 1px solid var(--border-color); box-shadow: 0 8px 20px rgba(0,0,0,0.2); transition: all 0.3s; display: flex; flex-direction: column; position: relative; }
+        .prop-card:hover { transform: translateY(-5px); border-color: var(--main-color); box-shadow: 0 15px 30px rgba(0,0,0,0.4); }
+        
+        .prop-header { padding: 20px; text-align: left; background: rgba(0,0,0,0.1); border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .badge-type { position: absolute; top: 15px; right: 15px; background: rgba(245, 158, 11, 0.15); color: var(--main-color); padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: bold; border: 1px solid rgba(245, 158, 11, 0.3); }
+        .price-text { font-size: 24px; font-weight: 900; color: #10b981; text-align: left; direction: ltr; }
+        .currency-span { font-size: 14px; color: #94a3b8; font-weight: normal; }
+        
+        .prop-body { padding: 20px; flex-grow: 1; }
+        .info-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13.5px; color: #cbd5e1; }
+        .info-icon { font-size: 16px; width: 25px; text-align: center; }
+        .owner-name { color: #f8fafc; font-weight: bold; }
+        
+        .prop-footer { padding: 15px 20px; background: rgba(0,0,0,0.2); border-top: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .action-circle { width: 35px; height: 35px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-decoration: none; font-size: 14px; transition: 0.2s; border: none; cursor: pointer; }
+        .action-circle:hover { transform: scale(1.15); }
+        .edit-btn { background: rgba(245, 158, 11, 0.15); color: #f59e0b; }
+        .del-btn { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
+    </style>
+
+    <div class="modern-layout">
+        <!-- بەشی تۆمارکردن بەبێ تایتڵ (تەنها پڵەیسهۆڵدەر) -->
+        <div class="form-section">
+            <h3 style="color:var(--main-color); text-align:center; margin-top:0; margin-bottom: 25px; font-size:20px;">➕ تۆمارکردنی موڵکی نوێ</h3>
             <form method="POST" action="/add_property_available">
-                <label>ناوی خاوەن موڵک:</label>
-                <input type="text" name="owner_name" required autocomplete="off">
                 
-                <label>مۆبایلی خاوەن موڵک:</label>
-                <input type="text" name="owner_phone">
+                <input type="text" name="owner_name" required autocomplete="off" placeholder="ناوی خاوەن موڵک بنوسە">
                 
-                <label>جۆری موڵک:</label>
-                <select name="property_type">
-                    <option>خانوو</option>
-                    <option>زەوی</option>
-                    <option>شوقە</option>
-                    <option>دوکان</option>
-                    <option>باغ</option>
+                <input type="text" name="owner_phone" placeholder="مۆبایلی خاوەن موڵک بنوسە">
+                
+                <select name="property_type" required>
+                    <option value="" disabled selected>جۆری موڵک دیاری بکە</option>
+                    <option value="خانوو">خانوو</option>
+                    <option value="زەوی">زەوی</option>
+                    <option value="شوقە">شوقە</option>
+                    <option value="دوکان">دوکان</option>
+                    <option value="باغ">باغ</option>
+                    <option value="دەواجین">دەواجین</option>
+                    <option value="بەنزینخانە">بەنزینخانە</option>
+                    <option value="کارگە">کارگە</option>
                 </select>
                 
-                <div class="grid-2">
-                    <div>
-                        <label>نرخی موڵک:</label>
-                        <input type="number" step="0.01" name="price" required>
+                <!-- تەنها نرخ و دراو تایتڵیان هەیە -->
+                <div class="grid-2" style="margin-bottom: 18px;">
+                    <div style="margin-bottom: 0;">
+                        <label style="margin-top:0; font-size:12px; margin-bottom:5px;">💰 نرخی موڵک</label>
+                        <input type="number" step="0.01" name="price" required placeholder="0.00" style="margin-bottom:0;">
                     </div>
-                    <div>
-                        <label>دراو:</label>
-                        <select name="currency"><option>دۆلار</option><option>دینار</option></select>
+                    <div style="margin-bottom: 0;">
+                        <label style="margin-top:0; font-size:12px; margin-bottom:5px;">💵 دراو</label>
+                        <select name="currency" style="margin-bottom:0;"><option>دۆلار</option><option>دینار</option></select>
                     </div>
                 </div>
                 
-                <label>شوێنی موڵک:</label>
-                <input list="loc_list" name="location" required autocomplete="off">
+                <input list="loc_list" name="location" required autocomplete="off" placeholder="شوێنی مووڵک هەڵبژێرە یان بنوسە">
                 <datalist id="loc_list">{% for l in locs %}<option value="{{ l }}">{% endfor %}</datalist>
                 
-                <label>گەڕەک:</label>
-                <input list="neigh_list" name="neighborhood" required autocomplete="off">
+                <input list="neigh_list" name="neighborhood" required autocomplete="off" placeholder="گەڕەک هەڵبژێرە یان بنوسە">
                 <datalist id="neigh_list">{% for n in neighs %}<option value="{{ n }}">{% endfor %}</datalist>
                 
-                <label>تێبینی / مواسەفات:</label>
-                <input type="text" name="specs">
+                <input type="text" name="specs" placeholder="تێبینی موسەفات یان هەرزانیاریەک بنوسە">
                 
-                <button type="submit" class="btn-primary">💾 پاشەکەوتکردنی موڵک</button>
+                <button type="submit" class="btn-modern">💾 پاشەکەوتکردنی موڵک</button>
             </form>
         </div>
         
-        <!-- بەشی لیستبۆکس و فلتەرکردن (٧٠٪) -->
-        <div class="card">
-            <h3 style="color:var(--main-color); text-align:center; margin-top:0;">📋 لیستی موڵکە بەردەستەکان</h3>
-            
-            <!-- بۆکسی فلتەر -->
-            <form method="GET" action="/properties_available" style="background:var(--bg-dark); padding:15px; border-radius:10px; border:1px solid var(--border-color); margin-bottom:15px;">
-                <div class="grid-4" style="gap:10px; align-items:flex-end;">
-                    <div>
-                        <label style="margin-top:0;">جۆری موڵک:</label>
-                        <select name="f_type">
-                            <option value="">هەموو</option>
-                            <option value="خانوو" {% if f_type=='خانوو' %}selected{% endif %}>خانوو</option>
-                            <option value="زەوی" {% if f_type=='زەوی' %}selected{% endif %}>زەوی</option>
-                            <option value="شوقە" {% if f_type=='شوقە' %}selected{% endif %}>شوقە</option>
-                            <option value="دوکان" {% if f_type=='دوکان' %}selected{% endif %}>دوکان</option>
-                            <option value="باغ" {% if f_type=='باغ' %}selected{% endif %}>باغ</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label style="margin-top:0;">شوێن:</label>
-                        <input list="loc_list" name="f_loc" value="{{ f_loc }}" placeholder="شوێن">
-                    </div>
-                    <div>
-                        <label style="margin-top:0;">گەڕەک:</label>
-                        <input list="neigh_list" name="f_neigh" value="{{ f_neigh }}" placeholder="گەڕەک">
-                    </div>
-                    <div style="display:flex; gap:5px;">
-                        <button type="submit" class="btn-primary" style="margin-top:0; padding:10px;">🔍 فلتەر</button>
-                        <a href="/properties_available" class="btn-danger" style="display:flex; align-items:center; justify-content:center; padding:10px; border-radius:8px;">لادان</a>
-                    </div>
+        <!-- بەشی پیشاندان و فلتەر -->
+        <div class="list-section">
+            <!-- فلتەر -->
+            <form class="filter-card" method="GET" action="/properties_available">
+                <div style="flex:1;">
+                    <label style="font-size:12px; color:#94a3b8; margin:0 0 5px 0;">جۆری موڵک</label>
+                    <select name="f_type">
+                        <option value="">هەموو جۆرەکان</option>
+                        <option value="خانوو" {% if f_type=='خانوو' %}selected{% endif %}>خانوو</option>
+                        <option value="زەوی" {% if f_type=='زەوی' %}selected{% endif %}>زەوی</option>
+                        <option value="شوقە" {% if f_type=='شوقە' %}selected{% endif %}>شوقە</option>
+                        <option value="دوکان" {% if f_type=='دوکان' %}selected{% endif %}>دوکان</option>
+                        <option value="باغ" {% if f_type=='باغ' %}selected{% endif %}>باغ</option>
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:12px; color:#94a3b8; margin:0 0 5px 0;">شوێن</label>
+                    <input list="loc_list" name="f_loc" value="{{ f_loc }}" placeholder="بۆ نموونە: ڕانیە">
+                </div>
+                <div style="flex:1;">
+                    <label style="font-size:12px; color:#94a3b8; margin:0 0 5px 0;">گەڕەک</label>
+                    <input list="neigh_list" name="f_neigh" value="{{ f_neigh }}" placeholder="ناوی گەڕەک...">
+                </div>
+                <div style="display:flex; gap:10px;">
+                    <button type="submit" style="background:#3b82f6; color:white; border:none; padding:10px 20px; border-radius:8px; font-family:'Noto Kufi Arabic'; font-weight:bold; cursor:pointer;">🔍 فلتەر</button>
+                    <a href="/properties_available" style="background:#ef4444; color:white; text-decoration:none; padding:10px 20px; border-radius:8px; font-weight:bold; display:flex; align-items:center;">لادان</a>
                 </div>
             </form>
             
-            <div class="table-responsive">
-                <table>
-                    <tr>
-                        <th>خاوەن موڵک</th>
-                        <th>مۆبایل</th>
-                        <th>جۆری موڵک</th>
-                        <th>نرخ</th>
-                        <th>شوێن و گەڕەک</th>
-                        <th>تێبینی</th>
-                        <th>کردارەکان</th>
-                    </tr>
-                    {% for p in props %}
-                    <tr>
-                        <td style="font-weight:bold; color:var(--main-color);">{{ p[17] or '-' }}</td>
-                        <td dir="ltr" style="font-size:12px;">{{ p[18] or '-' }}</td>
-                        <td><span style="background:var(--bg-dark); padding:4px 8px; border-radius:5px; border:1px solid var(--border-color);">{{ p[1] }}</span></td>
-                        <td dir="ltr" style="font-weight:900; color:#10b981;">{{ "{:,.0f}".format(p[8] or 0) }} <span>{{ p[9] }}</span></td>
-                        <td>{{ p[5] }} - {{ p[6] }}</td>
-                        <td style="font-size:12px; color:#94a3b8;">{{ p[13] or '-' }}</td>
-                        <td class="action-flex">
-                            <a href="/edit_property/{{ p[0] }}" class="action-btn btn-warning" title="دەستکاری">✏️</a>
-                            <form method="POST" action="/delete_property/{{ p[0] }}" style="margin:0;">
-                                <button type="submit" class="action-btn btn-danger" onclick="return confirm('ئەم موڵکە بسڕێتەوە؟');" title="سڕینەوە">🗑️</button>
+            <!-- کارتەکانی موڵک -->
+            <div class="properties-grid">
+                {% for p in props %}
+                <div class="prop-card">
+                    <span class="badge-type">{{ p.get('property_type', '') }}</span>
+                    <div class="prop-header">
+                        <div class="price-text">{{ "{:,.0f}".format(p.get('price') or 0) }} <span class="currency-span">{{ p.get('currency', '') }}</span></div>
+                    </div>
+                    <div class="prop-body">
+                        <div class="info-row">
+                            <span class="info-icon">📍</span>
+                            <span>{{ p.get('location', '') }} - {{ p.get('neighborhood', '') }}</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-icon">👤</span>
+                            <span class="owner-name">{{ p.get('owner_name') or 'نەزانراو' }}</span>
+                        </div>
+                        <div class="info-row" style="direction:ltr; justify-content:flex-end;">
+                            <span style="color:#94a3b8; font-size:12px;">{{ p.get('owner_phone') or '-' }}</span>
+                            <span class="info-icon">📱</span>
+                        </div>
+                        {% if p.get('specs') %}
+                        <div class="info-row" style="align-items:flex-start; margin-top:15px; padding-top:15px; border-top:1px dashed rgba(255,255,255,0.1);">
+                            <span class="info-icon">📝</span>
+                            <span style="font-size:12px; line-height:1.6; color:#94a3b8;">{{ p.get('specs', '') }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                    <div class="prop-footer">
+                        <span style="font-size:11px; color:#10b981; font-weight:bold;">🟢 {{ p.get('status', '') }}</span>
+                        <div style="display:flex; gap:10px;">
+                            <a href="/edit_property/{{ p.get('id') }}" class="action-circle edit-btn" title="دەستکاری">✏️</a>
+                            <form method="POST" action="/delete_property/{{ p.get('id') }}" style="margin:0;">
+                                <button type="submit" class="action-circle del-btn" onclick="return confirm('ئەم موڵکە بسڕێتەوە؟');" title="سڕینەوە">🗑️</button>
                             </form>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                    {% if not props %}
-                    <tr><td colspan="7" style="text-align:center; padding:30px; color:#94a3b8;">هیچ موڵکێک نەدۆزرایەوە بەپێی فلتەرەکان.</td></tr>
-                    {% endif %}
-                </table>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
             </div>
+            
+            {% if not props %}
+            <div style="text-align:center; padding:50px; background:var(--bg-card); border-radius:16px; border:1px dashed var(--border-color); color:#94a3b8;">
+                <h3 style="margin-bottom:10px;">هیچ موڵکێک نەدۆزرایەوە 🔍</h3>
+                <p>بەپێی ئەو فلتەرانەی دیاریت کردوون هیچ ئەنجامێک نییە، یان هێشتا موڵک تۆمار نەکراوە.</p>
+            </div>
+            {% endif %}
+            
         </div>
     </div>
     """
@@ -504,20 +642,20 @@ def edit_property(id):
     <div class="card" style="max-width:600px; margin:auto;">
         <h3 style="color:var(--main-color); text-align:center;">✏️ دەستکاریکردنی موڵکی بەردەست</h3>
         <form method="POST">
-            <label>ناوی خاوەن موڵک:</label><input type="text" name="owner_name" value="{p['owner_name'] or ''}" required>
-            <label>مۆبایلی خاوەن موڵک:</label><input type="text" name="owner_phone" value="{p['owner_phone'] or ''}">
+            <label>ناوی خاوەن موڵک:</label><input type="text" name="owner_name" value="{p.get('owner_name', '')}" required>
+            <label>مۆبایلی خاوەن موڵک:</label><input type="text" name="owner_phone" value="{p.get('owner_phone', '')}">
             <label>جۆری موڵک:</label>
             <select name="property_type">
-                <option value="{p['property_type']}">{p['property_type']}</option>
-                <option>خانوو</option><option>زەوی</option><option>شوقە</option><option>دوکان</option><option>باغ</option>
+                <option value="{p.get('property_type', '')}">{p.get('property_type', '')}</option>
+                <option>خانوو</option><option>زەوی</option><option>شوقە</option><option>دوکان</option><option>باغ</option><option>دەواجین</option><option>بەنزینخانە</option><option>کارگە</option>
             </select>
             <div class="grid-2">
-                <div><label>نرخی موڵک:</label><input type="number" step="0.01" name="price" value="{p['price'] or 0}" required></div>
-                <div><label>دراو:</label><select name="currency"><option>{p['currency']}</option><option>دۆلار</option><option>دینار</option></select></div>
+                <div><label>نرخی موڵک:</label><input type="number" step="0.01" name="price" value="{p.get('price', 0)}" required></div>
+                <div><label>دراو:</label><select name="currency"><option>{p.get('currency', 'دۆلار')}</option><option>دۆلار</option><option>دینار</option></select></div>
             </div>
-            <label>شوێن:</label><input type="text" name="location" value="{p['location'] or ''}" required>
-            <label>گەڕەک:</label><input type="text" name="neighborhood" value="{p['neighborhood'] or ''}" required>
-            <label>تێبینی:</label><input type="text" name="specs" value="{p['specs'] or ''}">
+            <label>شوێن:</label><input type="text" name="location" value="{p.get('location', '')}" required>
+            <label>گەڕەک:</label><input type="text" name="neighborhood" value="{p.get('neighborhood', '')}" required>
+            <label>تێبینی:</label><input type="text" name="specs" value="{p.get('specs', '')}">
             
             <button type="submit" class="btn-warning" style="width:100%; padding:15px; margin-top:20px; border-radius:8px; font-weight:bold; cursor:pointer; font-family:'Noto Kufi Arabic';">💾 پاشەکەوتکردن</button>
             <a href="/properties_available" class="btn-danger" style="display:block; text-align:center; margin-top:10px; padding: 12px; border-radius: 8px; text-decoration:none;">گەڕانەوە</a>
@@ -664,7 +802,7 @@ def archive():
         
     content = """
     <div class="card">
-        <h3 style="color:var(--main-color); text-align:center; margin-top:0;">🗂️ ئەرشیفی گرێبەستەکان</h3>
+        <h3 style="color:var(--main-color); text-align:center; margin-top:0;">🗂 ئەرشیفی گرێبەستەکان</h3>
         <div class="table-responsive">
             <table>
                 <tr><th>ژ.گرێبەست</th><th>بەروار</th><th>جۆری موڵک</th><th>فرۆشیار</th><th>کڕیار</th><th>نرخ</th><th>کردارەکان</th></tr>
@@ -678,7 +816,7 @@ def archive():
                     <td dir="ltr" style="font-weight:900; color:var(--main-color);">{{ "{:,.0f}".format(r[4]) }} <span>{{ r[5] }}</span></td>
                     <td class="action-flex">
                         <a href="/print/{{ r[0] }}" class="btn-print" style="padding: 6px 12px; font-size:14px;" target="_blank">🖨️ چاپ</a>
-                        <a href="/edit_contract/{{ r[0] }}" class="action-btn btn-warning" title="دەستکاری">✏️</a>
+                        <a href="/edit_contract/{{ r[0] }}" class="action-btn btn-warning" title="دەستکاری تەواوەتی">✏️</a>
                         <form method="POST" action="/delete_contract/{{ r[0] }}" style="margin:0;">
                             <button type="submit" class="action-btn btn-danger" onclick="return confirm('دڵنیایت لە سڕینەوەی بە یەکجاری؟');" title="سڕینەوە">🗑️</button>
                         </form>
@@ -694,33 +832,136 @@ def archive():
 @app.route("/edit_contract/<int:id>", methods=["GET", "POST"])
 def edit_contract(id):
     if not session.get('logged_in'): return redirect(url_for('login'))
+    
     if request.method == "POST":
         with engine.begin() as conn:
-            conn.execute(text("UPDATE contracts SET contract_date=:dt, total_price=:tp, advance_payment=:ap, currency=:cur, witness1=:w1, witness2=:w2, contract_details=:nt WHERE id=:id"),
-                {"dt": request.form.get("c_date"), "tp": float(request.form.get("price") or 0), "ap": float(request.form.get("advance") or 0), "cur": request.form.get("currency"), "w1": request.form.get("wit1"), "w2": request.form.get("wit2"), "nt": request.form.get("note"), "id": id})
+            ids = conn.execute(text("SELECT property_id, seller_id, buyer_id FROM contracts WHERE id=:id"), {"id": id}).mappings().fetchone()
+            
+            # دەستکاری کڕیار و فرۆشیار
+            conn.execute(text("UPDATE clients SET name=:n, phone=:p WHERE id=:cid"), {"n": request.form.get("seller_name"), "p": request.form.get("seller_phone"), "cid": ids['seller_id']})
+            conn.execute(text("UPDATE clients SET name=:n, phone=:p WHERE id=:cid"), {"n": request.form.get("buyer_name"), "p": request.form.get("buyer_phone"), "cid": ids['buyer_id']})
+            
+            # دەستکاری موڵک
+            conn.execute(text("""UPDATE properties SET 
+                property_type=:pt, property_number=:pnum, area=:pa, address=:pad, location=:loc, neighborhood=:neigh, 
+                orientation=:ori, price=:pr, currency=:cur, eviction_period=:ev, eviction_date=:evd, 
+                monthly_rent=:rent, specs=:sp, block_number=:bn, eviction_penalty=:pen 
+                WHERE id=:pid"""),
+                {"pt": request.form.get("p_type"), "pnum": request.form.get("p_number"), "pa": request.form.get("p_area"), "pad": f"{request.form.get('location')} - {request.form.get('neighborhood')}", "loc": request.form.get("location"), "neigh": request.form.get("neighborhood"), "ori": request.form.get("p_orientation"), "pr": float(request.form.get("price") or 0), "cur": request.form.get("currency"), "ev": request.form.get("evict_period"), "evd": request.form.get("evict_date"), "rent": request.form.get("rent"), "sp": request.form.get("specs"), "bn": request.form.get("p_block"), "pen": request.form.get("penalty"), "pid": ids['property_id']})
+            
+            # دەستکاری گرێبەست
+            conn.execute(text("""UPDATE contracts SET 
+                contract_date=:dt, total_price=:tp, advance_payment=:ap, currency=:cur, 
+                office_commission=:oc, witness1=:w1, witness2=:w2, contract_details=:nt 
+                WHERE id=:id"""),
+                {"dt": request.form.get("c_date"), "tp": float(request.form.get("price") or 0), "ap": float(request.form.get("advance") or 0), "cur": request.form.get("currency"), "oc": float(request.form.get("commission") or 0), "w1": request.form.get("wit1"), "w2": request.form.get("wit2"), "nt": request.form.get("note"), "id": id})
+            
+            # دەستکاری کۆمسیۆن لە خشتەی داهات
+            conn.execute(text("UPDATE transactions SET amount=:amt WHERE description LIKE :desc AND transaction_type='داهات'"), {"amt": float(request.form.get("commission") or 0), "desc": f"کۆمسیۆنی گرێبەستی {id}"})
+            
         return redirect(url_for('archive'))
     
     with engine.connect() as conn:
-        c = conn.execute(text("SELECT * FROM contracts WHERE id=:id"), {"id": id}).mappings().fetchone()
+        q = text("""
+            SELECT c.*,
+                   p.property_type, p.property_number, p.area, p.neighborhood, p.orientation, p.block_number, p.location, p.eviction_period, p.eviction_date, p.monthly_rent, p.eviction_penalty, p.specs as p_specs,
+                   s.name as seller_name, s.phone as seller_phone,
+                   b.name as buyer_name, b.phone as buyer_phone
+            FROM contracts c
+            JOIN properties p ON c.property_id = p.id
+            JOIN clients s ON c.seller_id = s.id
+            JOIN clients b ON c.buyer_id = b.id
+            WHERE c.id=:id
+        """)
+        c = conn.execute(q, {"id": id}).mappings().fetchone()
+        
+        clients = conn.execute(text("SELECT DISTINCT name FROM clients")).fetchall()
+        locs_res = conn.execute(text("SELECT DISTINCT location FROM properties WHERE location != ''")).fetchall()
+        neighs_res = conn.execute(text("SELECT DISTINCT neighborhood FROM properties WHERE neighborhood != ''")).fetchall()
+        wits_res = conn.execute(text("SELECT witness1 FROM contracts UNION SELECT witness2 FROM contracts")).fetchall()
+        
     if not c: return "نەدۆزرایەوە"
     
+    c_names = [r[0] for r in clients if r[0]]
+    c_locs = list(set([r[0] for r in locs_res if r[0]] + ['ڕانیە', 'چوارقوڕنە', 'حاجیاوا', 'سەرکەپکان', 'بۆسکێن']))
+    c_neighs = list(set([r[0] for r in neighs_res if r[0]] + ['ئازادی١', 'سەرا', 'نەورۆز', 'شارەوانی', 'داستان']))
+    c_wits = list(set([r[0] for r in wits_res if r[0]]))
+    
     content = f"""
-    <div class="card" style="max-width:800px; margin:auto;">
-        <h3 style="color:var(--main-color); text-align:center;">✏️ دەستکاریکردنی خێرای گرێبەستی ژمارە {id}</h3>
-        <form method="POST">
-            <div class="grid-2">
-                <div><label>بەروار:</label><input type="date" name="c_date" value="{c['contract_date']}"></div>
-                <div><label>نرخی کۆتایی:</label><input type="number" step="0.01" name="price" value="{c['total_price']}"></div>
-                <div><label>پێشەکی:</label><input type="number" step="0.01" name="advance" value="{c['advance_payment']}"></div>
-                <div><label>دراو:</label><select name="currency"><option>{c['currency']}</option><option>دۆلار</option><option>دینار</option></select></div>
-                <div><label>شاهێدی ١:</label><input type="text" name="wit1" value="{c['witness1']}"></div>
-                <div><label>شاهێدی ٢:</label><input type="text" name="wit2" value="{c['witness2']}"></div>
-                <div style="grid-column: 1 / -1;"><label>تێبینی:</label><input type="text" name="note" value="{c['contract_details']}"></div>
+    <form method="POST">
+        <div class="card">
+            <h3 style="color:var(--main-color); text-align:center; margin-top:0;">✏️ دەستکاریکردنی گرێبەستی ژمارە {id}</h3>
+            
+            <div class="section-title">🏠 زانیاری بنەڕەتی گرێبەست</div>
+            <div class="grid-4">
+                <div><label>ژمارەی گرێبەست:</label><input type="text" value="{id}" disabled style="opacity: 0.7;"></div>
+                <div><label>جۆری موڵک:</label><select name="p_type"><option value="{c['property_type']}">{c['property_type']}</option><option>زەوی</option><option>خانوو</option><option>شوقە</option><option>دوکان</option><option>باغ</option></select></div>
+                <div>
+                    <label>شوێنی موڵک (شار/قەزا):</label>
+                    <input list="loc_list" name="location" value="{c['location']}" required autocomplete="off">
+                    <datalist id="loc_list">{"".join(['<option value="'+l+'">' for l in c_locs])}</datalist>
+                </div>
+                <div>
+                    <label>گەڕەک:</label>
+                    <input list="neigh_list" name="neighborhood" value="{c['neighborhood']}" required autocomplete="off">
+                    <datalist id="neigh_list">{"".join(['<option value="'+n+'">' for n in c_neighs])}</datalist>
+                </div>
             </div>
-            <button type="submit" class="btn-primary">💾 پاشەکەوتکردنی گۆڕانکاری</button>
-            <a href="/archive" class="btn-danger" style="display:block; text-align:center; margin-top:10px; padding: 12px; border-radius: 8px; text-decoration:none;">پاشگەزبوونەوە</a>
-        </form>
-    </div>
+            
+            <div class="section-title">👤 زانیاری لایەنەکان</div>
+            <div class="grid-4" style="background: var(--bg-dark); padding: 15px; border-radius: 8px; border: 1px solid var(--border-color);">
+                <div><label style="color:#ef4444;">ناوی فرۆشیار:</label><input list="c_list" name="seller_name" value="{c['seller_name']}" required autocomplete="off"></div>
+                <div><label style="color:#ef4444;">مۆبایلی فرۆشیار:</label><input type="text" name="seller_phone" value="{c['seller_phone'] or ''}"></div>
+                <div><label style="color:#10b981;">ناوی کڕیار:</label><input list="c_list" name="buyer_name" value="{c['buyer_name']}" required autocomplete="off"></div>
+                <div><label style="color:#10b981;">مۆبایلی کڕیار:</label><input type="text" name="buyer_phone" value="{c['buyer_phone'] or ''}"></div>
+            </div>
+            <datalist id="c_list">{"".join(['<option value="'+cl+'">' for cl in c_names])}</datalist>
+
+            <div class="section-title">📍 زانیاری وردی موڵک</div>
+            <div class="grid-4">
+                <div><label>ژمارەی موڵک (زەوی):</label><input type="text" name="p_number" value="{c['property_number']}" required></div>
+                <div><label>ژمارەی تاپۆ (پارچە):</label><input type="text" name="p_block" value="{c['block_number'] or ''}"></div>
+                <div><label>ڕووبەر (م٢):</label><input type="text" name="p_area" value="{c['area']}" required></div>
+                <div><label>ڕووی موڵک:</label><select name="p_orientation"><option value="{c['orientation']}">{c['orientation']}</option><option>ڕۆژهەڵات</option><option>ڕۆژئاوا</option><option>ڕوو لە شاخ</option><option>قیبلە</option><option>باکوور</option><option>باشوور</option></select></div>
+            </div>
+            
+            <div id="eviction_row" class="grid-4" style="margin-top:15px;">
+                <div><label>ماوەی چۆڵکردن:</label><input type="text" name="evict_period" value="{c['eviction_period'] or ''}"></div>
+                <div><label>بەرواری چۆڵکردن:</label><input type="date" name="evict_date" value="{c['eviction_date']}"></div>
+                <div><label>کرێی مانگانە:</label><input type="text" name="rent" value="{c['monthly_rent'] or ''}"></div>
+                <div><label>سزای چۆڵنەکردن:</label><input type="text" name="penalty" value="{c['eviction_penalty'] or ''}"></div>
+            </div>
+            
+            <label>مواسەفاتی موڵک:</label><input type="text" name="specs" value="{c['p_specs'] or ''}">
+
+            <div class="section-title">💰 زانیاری دارایی و شاهێدەکان</div>
+            <div class="grid-4">
+                <div><label>نرخی کۆتایی:</label><input type="number" step="0.01" name="price" value="{c['total_price']}" required></div>
+                <div><label>بڕی پێشەکی:</label><input type="number" step="0.01" name="advance" value="{c['advance_payment']}"></div>
+                <div><label>جۆری دراو:</label><select name="currency"><option value="{c['currency']}">{c['currency']}</option><option>دۆلار</option><option>دینار</option></select></div>
+                <div><label>کۆمسیۆنی نوسینگە:</label><input type="number" step="0.01" name="commission" value="{c['office_commission'] or 0}"></div>
+            </div>
+            <div class="grid-2" style="margin-top:15px;">
+                <div>
+                    <label>👁️ شاهێدی یەکەم:</label>
+                    <input list="wit_list" name="wit1" value="{c['witness1'] or ''}" required autocomplete="off">
+                </div>
+                <div>
+                    <label>👁️ شاهێدی دووەم:</label>
+                    <input list="wit_list" name="wit2" value="{c['witness2'] or ''}" required autocomplete="off">
+                </div>
+            </div>
+            <datalist id="wit_list">{"".join(['<option value="'+w+'">' for w in c_wits])}</datalist>
+            
+            <div class="grid-2" style="margin-top:15px;">
+                <div><label>📅 بەرواری گرێبەست:</label><input type="date" name="c_date" value="{c['contract_date']}" required></div>
+                <div><label>📝 تێبینی زیادە:</label><input type="text" name="note" value="{c['contract_details'] or ''}"></div>
+            </div>
+            
+            <button type="submit" class="btn-warning" style="width:100%; padding:15px; margin-top:25px; border:none; border-radius:8px; font-weight:900; font-size:16px; font-family:'Noto Kufi Arabic'; cursor:pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3);">💾 پاشەکەوتکردنی هەموو گۆڕانکارییەکان</button>
+            <a href="/archive" class="btn-danger" style="display:block; text-align:center; margin-top:10px; padding: 14px; border-radius: 8px; text-decoration:none; font-weight:bold;">پاشگەزبوونەوە</a>
+        </div>
+    </form>
     """
     return render_template_string(BASE_TEMPLATE.replace('<!--CONTENT_PLACEHOLDER-->', content))
 
@@ -791,7 +1032,7 @@ def expenses():
                         <td class="action-flex">
                             <a href="/edit_expense/{{ r[0] }}" class="action-btn btn-warning" title="دەستکاری">✏️</a>
                             <form method="POST" action="/delete_expense/{{ r[0] }}" style="margin:0;">
-                                <button type="submit" class="action-btn btn-danger" onclick="return confirm('بسڕێتەوە؟');" title="سڕینەوە">🗑️</button>
+                                <button type="submit" class="action-btn btn-danger" onclick="return confirm('بسڕێتەوە؟');" title="سڕینەوە">🗑</button>
                             </form>
                         </td>
                     </tr>
@@ -817,7 +1058,7 @@ def edit_expense(id):
     if request.method == "POST":
         desc = f"{request.form.get('type')}|{request.form.get('person')}|{request.form.get('note', '')}"
         with engine.begin() as conn:
-            conn.execute(text("UPDATE transactions SET amount=:amt, description=:desc WHERE id=:id"), {"amt": request.form.get("amount"), "desc": desc, "id": id})
+            conn.execute(text("UPDATE transactions SET transaction_date=:dt, amount=:amt, description=:desc WHERE id=:id"), {"dt": request.form.get("trans_date"), "amt": request.form.get("amount"), "desc": desc, "id": id})
         return redirect(url_for('expenses'))
     
     with engine.connect() as conn:
@@ -827,11 +1068,13 @@ def edit_expense(id):
     t = parts[0].replace('جۆر:', '').strip() if len(parts) > 0 else ''
     p = parts[1].replace('کەس:', '').strip() if len(parts) > 1 else ''
     n = parts[2].replace('تێبینی:', '').strip() if len(parts) > 2 else ''
+    dt_str = row['transaction_date'].strftime('%Y-%m-%d') if row['transaction_date'] else ''
     
     content = f"""
     <div class="card" style="max-width:500px; margin:auto;">
         <h3 style="color:var(--main-color); text-align:center;">✏ دەستکاریکردنی مەسروفات</h3>
         <form method="POST">
+            <label>بەروار:</label><input type="date" name="trans_date" value="{dt_str}" required>
             <label>جۆری مەسروف:</label><input type="text" name="type" value="{t}" required>
             <label>کێ مەسروفی کردووە:</label><input type="text" name="person" value="{p}" required>
             <label>بڕی پارە:</label><input type="number" step="0.01" name="amount" value="{row['amount']}" required>
@@ -925,7 +1168,10 @@ def edit_safe(id):
     if not session.get('logged_in'): return redirect(url_for('login'))
     if request.method == "POST":
         with engine.begin() as conn:
-            conn.execute(text("UPDATE safe_box SET person_name=:nm, amount=:amt, note=:nt WHERE id=:id"), {"nm": request.form.get("person_name"), "amt": request.form.get("amount"), "nt": request.form.get("note"), "id": id})
+            conn.execute(text("""UPDATE safe_box SET 
+                trans_date=:dt, trans_type=:typ, currency=:curr, person_name=:nm, amount=:amt, note=:nt 
+                WHERE id=:id"""), 
+                {"dt": request.form.get("trans_date"), "typ": request.form.get("trans_type"), "curr": request.form.get("currency"), "nm": request.form.get("person_name"), "amt": request.form.get("amount"), "nt": request.form.get("note"), "id": id})
         return redirect(url_for('safe'))
     
     with engine.connect() as conn:
@@ -935,9 +1181,31 @@ def edit_safe(id):
     <div class="card" style="max-width:500px; margin:auto;">
         <h3 style="color:var(--main-color); text-align:center;">✏️ دەستکاریکردنی تۆماری قاسە</h3>
         <form method="POST">
+            <label>بەروار:</label><input type="date" name="trans_date" value="{row['trans_date']}" required>
+            
+            <div class="grid-2">
+                <div>
+                    <label>جۆری مامەڵە:</label>
+                    <select name="trans_type">
+                        <option value="{row['trans_type']}">{row['trans_type']}</option>
+                        <option value="هاتوو">هاتنی دراو 📥</option>
+                        <option value="ڕۆیشتوو">ڕۆیشتنی دراو 📤</option>
+                    </select>
+                </div>
+                <div>
+                    <label>جۆری دراو:</label>
+                    <select name="currency">
+                        <option value="{row['currency']}">{row['currency']}</option>
+                        <option>دۆلار</option>
+                        <option>دینار</option>
+                    </select>
+                </div>
+            </div>
+            
             <label>بڕی پارە:</label><input type="number" step="0.01" name="amount" value="{row['amount']}">
             <label>ناو / لایەن:</label><input type="text" name="person_name" value="{row['person_name']}">
-            <label>تێبینی:</label><input type="text" name="note" value="{row['note']}">
+            <label>تێبینی:</label><input type="text" name="note" value="{row['note'] or ''}">
+            
             <button type="submit" class="btn-warning" style="width:100%; padding:15px; margin-top:20px; border-radius:8px; font-weight:bold; cursor:pointer; font-family:'Noto Kufi Arabic';">💾 پاشەکەوتکردن</button>
             <a href="/safe" class="btn-danger" style="display:block; text-align:center; margin-top:10px; padding: 12px; border-radius: 8px; text-decoration:none;">گەڕانەوە</a>
         </form>
@@ -982,7 +1250,7 @@ def users():
                         <td style="color:#ef4444;" dir="ltr">{{ r[2] }}</td>
                         <td>{{ r[3] }}</td>
                         <td class="action-flex">
-                            <a href="/edit_user/{{ r[0] }}" class="action-btn btn-warning" title="دەستکاری">✏️</a>
+                            <a href="/edit_user/{{ r[0] }}" class="action-btn btn-warning" title="دەستکاری">✏️️</a>
                             {% if r[1] != 'admin' %}
                             <form method="POST" action="/delete_user/{{ r[0] }}" style="margin:0;">
                                 <button type="submit" class="action-btn btn-danger" onclick="return confirm('بە یەکجاری بسڕێتەوە؟');" title="سڕینەوە">🗑️</button>
@@ -1021,7 +1289,7 @@ def edit_user(id):
     
     content = f"""
     <div class="card" style="max-width:400px; margin:auto;">
-        <h3 style="color:var(--main-color); text-align:center;">✏️ دەستکاری بەکارهێنەر</h3>
+        <h3 style="color:var(--main-color); text-align:center;">✏ دەستکاری بەکارهێنەر</h3>
         <form method="POST">
             <label>ناوی بەکارهێنەر:</label><input type="text" name="username" value="{u['username']}" required>
             <label>وشەی نهێنی:</label><input type="text" name="password" value="{u['password']}" required>
@@ -1046,7 +1314,7 @@ def delete_user(id):
     return redirect(url_for('users'))
 
 # ==========================================
-# فۆڕمی ئەیفۆڕ (A4) بە لۆگۆی نوێ و ناوازە
+# فۆڕمی ئەیفۆڕ (A4) لەگەڵ دیزاینی تایبەت بۆ واتەرمارک و لۆگۆی سەرەوە
 # ==========================================
 @app.route("/print/<int:id>")
 def print_a4(id):
@@ -1087,72 +1355,105 @@ def print_a4(id):
         <title>گرێبەستی چاپکراو</title>
         <style>
             @import url('https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;700&display=swap');
-            body {{ font-family: 'Noto Kufi Arabic', sans-serif; background: #e2e8f0; margin: 0; padding: 20px; color: #000; font-size: 13px; line-height: 2.2; }}
-            .a4-page {{ width: 21cm; min-height: 29.7cm; padding: 1.5cm 1cm; margin: 0 auto; background: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); box-sizing: border-box; position: relative; }}
+            body {{ font-family: 'Noto Kufi Arabic', sans-serif; background: #e2e8f0; margin: 0; padding: 20px; color: #000; font-size: 13px; line-height: 2.1; }}
+            .a4-page {{ width: 21cm; min-height: 29.7cm; padding: 0.5cm 1cm; margin: 0 auto; background: white; box-shadow: 0 0 10px rgba(0,0,0,0.1); box-sizing: border-box; position: relative; z-index: 1; }}
             
-            .header-flex {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #721c24; padding-bottom: 15px; margin-bottom: 25px; }}
-            .phones {{ color: #d97706; font-weight: bold; font-size: 11px; text-align: left; line-height: 1.6; width: 25%; }}
-            .title-center {{ text-align: center; color: #721c24; width: 50%; }}
+            /* ڕێکخستنی واتەرمارک بۆ کاتی پرێنتکردن */
+            .watermark-container {{
+                position: absolute;
+                top: 0; left: 0; right: 0; bottom: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: -1;
+                opacity: 0.15; 
+            }}
+            .watermark-container img {{
+                width: 70%;
+                max-width: 600px;
+            }}
+            
+            .header-flex {{ display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #721c24; padding-bottom: 12px; margin-bottom: 20px; }}
+            
+            /* دیزاینی نوێی بەشی تەلەفۆنەکان کە ئایکۆنی تەلەفۆنی تیایە */
+            .phones-wrapper {{ width: 33%; display: flex; justify-content: flex-start; align-items: center; }}
+            .phones-box {{
+                color: #1e3a8a;
+                font-weight: bold;
+                font-size: 13px;
+                line-height: 1.8;
+                border: 2px solid #3b82f6;
+                background-color: #eff6ff;
+                border-radius: 12px;
+                padding: 10px 15px;
+                text-align: left;
+                display: inline-block;
+            }}
+            
+            .title-center {{ text-align: center; color: #721c24; width: 34%; }}
             .title-center h1 {{ margin: 0; font-size: 26px; font-weight: 900; }}
             .title-center h3 {{ margin: 5px 0 0 0; font-size: 15px; color: #ef4444; }}
             .title-center span {{ font-size: 11px; color: #666; }}
             
-            /* لۆگۆی ناوازە و گەورەتری عەقارات */
-            .logo-wrap {{ width: 25%; display: flex; justify-content: flex-end; }}
-            .logo-svg {{ width: 75px; height: 75px; }}
+            .logo-wrap {{ width: 33%; display: flex; justify-content: flex-end; align-items: center; }}
+            .logo-img {{ max-width: 160px; height: auto; object-fit: contain; }}
             
-            .meta-row {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; }}
+            .meta-row {{ display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }}
             .meta-box {{ border: 1px solid #ccc; padding: 5px 15px; border-radius: 8px; font-weight: bold; }}
             .meta-center {{ border: 1px solid #ccc; padding: 5px 30px; border-radius: 8px; font-weight: bold; color: #721c24; background: #fdfdfd; }}
             
-            .parties-row {{ display: flex; justify-content: space-between; margin-bottom: 30px; border: 1px solid #eee; padding: 15px; border-radius: 8px; }}
+            .parties-row {{ display: flex; justify-content: space-between; margin-bottom: 25px; border: 1px solid #eee; padding: 12px; border-radius: 8px; }}
             .party {{ text-align: center; width: 45%; }}
             .party-title {{ color: #ef4444; font-weight: bold; margin-bottom: 10px; font-size: 11px; }}
             .party-phone {{ font-size: 11px; color: #555; }}
             
-            ol {{ padding-right: 20px; text-align: justify; margin-bottom: 30px; }}
-            li {{ margin-bottom: 10px; }}
-            .highlight {{ font-weight: bold; text-decoration: underline; }}
+            ol {{ padding-right: 20px; text-align: justify; margin-bottom: 25px; }}
+            li {{ margin-bottom: 8px; }}
             
-            .note-red {{ color: #ef4444; text-align: center; font-weight: bold; margin: 30px 0; font-size: 12px; }}
+            .highlight {{ font-weight: bold; text-decoration: underline; color: #ef4444; }}
             
-            .signatures-row {{ display: flex; justify-content: space-between; text-align: center; font-weight: bold; font-size: 11px; margin-top: 50px; border-top: 2px dotted #ccc; padding-top: 20px; }}
-            .sig-col {{ display: flex; flex-direction: column; gap: 20px; width: 18%; }}
+            .note-red {{ color: #ef4444; text-align: center; font-weight: bold; margin: 25px 0; font-size: 12px; }}
+            
+            .signatures-row {{ display: flex; justify-content: space-between; text-align: center; font-weight: bold; font-size: 11px; margin-top: 40px; border-top: 2px dotted #ccc; padding-top: 15px; }}
+            .sig-col {{ display: flex; flex-direction: column; gap: 15px; width: 18%; }}
             .sig-name {{ color: #555; }}
             
-            .footer-text {{ text-align: center; font-size: 10px; color: #999; margin-top: 40px; }}
+            .footer-text {{ text-align: center; font-size: 10px; color: #999; margin-top: 30px; }}
             
             @media print {{
-                body {{ background: white; padding: 0; }}
-                .a4-page {{ box-shadow: none; border: none; margin: 0; padding: 1.5cm 1cm; }}
+                @page {{ margin: 0.5cm; }} /* ڕێگری دەکات لە دروستبوونی پەڕەی بەتاڵ */
+                body {{ background: white; padding: 0; margin: 0; }}
+                .a4-page {{ box-shadow: none; border: none; margin: 0; padding: 0.5cm 1cm; width: 100%; height: auto; page-break-after: avoid; page-break-inside: avoid; }}
                 #print-btn {{ display: none; }}
             }}
         </style>
     </head>
     <body>
         <div class="a4-page">
+            
+            <!-- واتەرمارکی سەد لە سەد جێگیر (لۆگۆی پشتەوە) -->
+            <div class="watermark-container">
+                <img src="/static/logo.png" onerror="this.style.display='none'" alt="واتەرمارک">
+            </div>
+            
             <div class="header-flex">
-                <div class="phones" dir="ltr">
-                    7171 073 0770<br>
-                    7171 073 0750<br>
-                    4609 184 0750<br>
-                    8801 102 0770
+                <!-- دیزاینی نوێی ژمارەی تەلەفۆن بەبێ تایتڵ و لەگەڵ ئایکۆن -->
+                <div class="phones-wrapper">
+                    <div class="phones-box" dir="ltr">
+                        📞 0770 073 7171<br>
+                        📞 0750 073 7171<br>
+                        📞 0750 184 4609<br>
+                        📞 0770 102 8801
+                    </div>
                 </div>
+
                 <div class="title-center">
                     <h1>نوسینگەی شەعبان</h1>
                     <h3>بۆ کڕین و فرۆشتنی موڵک</h3>
-                    <span>(ڕانیە گەڕەکی ئاشتی)</span>
+                    <span>(ڕانیە گەڕەکی شارەوانی)</span>
                 </div>
-                <!-- لۆگۆی نوێ و ناوازە بە قەبارەی گەورەتر -->
                 <div class="logo-wrap">
-                    <svg class="logo-svg" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="50" cy="50" r="46" stroke="#721c24" stroke-width="3" stroke-dasharray="4 2"/>
-                        <path d="M50 15L15 45H28V80H72V45H85L50 15Z" fill="#721c24"/>
-                        <path d="M40 80V52H60V80H40Z" fill="#ffffff"/>
-                        <rect x="32" y="38" width="10" height="10" rx="1" fill="#f59e0b"/>
-                        <rect x="58" y="38" width="10" height="10" rx="1" fill="#f59e0b"/>
-                        <path d="M50 25L68 40H32L50 25Z" fill="#f59e0b"/>
-                    </svg>
+                    <img src="/static/logo.png" onerror="this.style.display='none'" class="logo-img" alt="لۆگۆی نوسینگە">
                 </div>
             </div>
             
@@ -1182,7 +1483,7 @@ def print_a4(id):
                 <li>هەردوو لایەن کرێی نێوەند (نوسینگە) دەدەن مەگەر لەسەر شتێک ڕێکەوتبن.</li>
                 {eviction_html}
                 <li>دەبێت لایەنی دووەم کاروباری تەواوکردنی موڵک تەواوبکات لەماوەی دیاریکراودا.</li>
-                <li>هەر کێشەیەکی حکومی و مەدەنی هەبێت بە نزدی ڕۆژ دەگەڕێندرێتەوە بۆ فرۆشیار.</li>
+                <li>هەر کێشەیەکی حکومی و مەدەنی هەبێت بە نرخی ڕۆژ دەگەڕێندرێتەوە بۆ فرۆشیار.</li>
                 <li>بە ڕەزامەندی هەردوو لایەن ئەم بڕگانەی لە بەڵگەنامەکەدا هاتووە ئیمزا کرا.</li>
             </ol>
             
@@ -1215,7 +1516,7 @@ def print_a4(id):
         </div>
         
         <div style="text-align:center; margin-top: 20px;" id="print-btn">
-            <button onclick="window.print();" style="padding: 15px 30px; font-size: 18px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-family: 'Noto Kufi Arabic'; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">🖨️ چاپکردنی فەرمی</button>
+            <button onclick="window.print();" style="padding: 15px 30px; font-size: 18px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-family: 'Noto Kufi Arabic'; font-weight: bold; box-shadow: 0 4px 6px rgba(0,0,0,0.2);">🖨 چاپکردنی فەرمی</button>
             <a href="/archive" style="display: block; margin-top: 15px; color: #ef4444; text-decoration: none; font-weight: bold;">گەڕانەوە بۆ ئەرشیف</a>
         </div>
     </body>
