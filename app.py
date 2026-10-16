@@ -253,7 +253,7 @@ def login():
             <div class="color-circle" style="background:#10b981;" onclick="applyTheme('emerald')" title="سەوز"></div>
             <div class="color-circle" style="background:#f59e0b;" onclick="applyTheme('gold')" title="گۆڵد"></div>
             <div class="color-circle" style="background:#cbd5e1;" onclick="applyTheme('diamond')" title="ڕەشی ئەڵماسی"></div>
-            <div class="color-circle" style="background:#87CEEB;" onclick="applyTheme('skyblue')" title="شینی ئاسمانی"></div>        </div>
+            <div class="color-circle" style="background:#0EA5E9;" onclick="applyTheme('skyblue')" title="شینی ئاسمانی"></div>        </div>
         <div class="login-box">
             <h2 style="color:var(--main-color); font-weight:900; text-shadow: 0 0 10px rgba(0,0,0,0.5); font-size:24px;">🏢 نوسینگەی شەعبان</h2>
             <form method="POST">
